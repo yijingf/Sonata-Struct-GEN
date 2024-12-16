@@ -5,7 +5,6 @@ Returns:
 """
 
 # Todo: 1. Use OrderedDict instead of list!
-# Todo: 2. Use KMP to determine score section pattern
 
 import os
 import json
@@ -19,24 +18,23 @@ from longest_repeating_pattern import find_lrp
 
 import sys
 sys.path.append("..")
-
 from utils.common import load_event, trim_event, token2v
 from utils.event import expand_score, no_repeat_pattern
 from utils.align import get_t_bar, t_to_bar_beat, bar_beat_to_t
 
 
-def pattern_type(s):
+def get_pattern_type(s):
     if s[0] == 'I':
         s = s[1:]
 
     if s == 'A':
-        return "A", []
+        return "A", None
     if s == 'AB':
-        return "AB", []
+        return "AB", None
     lrp = find_lrp(s)
     if not lrp:
-        return "ABC", []
-    return 'ABA', [0, len(lrp)]
+        return "ABC", None
+    return 'ABA', s[len(lrp)]
 
 
 def get_entropy(A):
@@ -349,7 +347,7 @@ def get_struct_A_B(sub_sect_bound, boundaries, sig_shift):
     return sect_bound
 
 
-def get_struct_A_B_A(sub_sect_bound):
+def get_struct_A_B_A(sub_sect_bound, dev_sect='C'):
     """Find exposition, development and recapitulation in AB-x-AB-(y) form on score.
     Exposition is first A-B section on score;
     Development starts with x section, i.e. C in this corpus;
@@ -363,7 +361,7 @@ def get_struct_A_B_A(sub_sect_bound):
     """
 
     sub_sect_names = list(sub_sect_bound.keys())
-    i_dev = sub_sect_names.index('C')
+    i_dev = sub_sect_names.index(dev_sect)
     i_recap = sub_sect_names.index('A-repeat')
 
     sect_idx = OrderedDict({"expose": [0, i_dev],
@@ -720,7 +718,6 @@ def main(composer, file_base, config, n_cluster=-1, min_phrase=4):
 
     sects = get_score_section(struct)
     pattern = get_pattern(sects)
-    pattern_str = "-".join(pattern)
 
     # Sub-section boundary on score
     score_sect_bound = get_score_sub_sect_boundary(struct, max(score_event))
@@ -752,25 +749,26 @@ def main(composer, file_base, config, n_cluster=-1, min_phrase=4):
 
     # Find section boundary based on score section and structural boundary prediction
     intro = None
-    if pattern_str[0] == 'I':
+    if pattern[0] == 'I':
         intro_sect = deepcopy(sub_sect_bound['I'])
         intro = [[e['st']['t'], e['ed']['t']] for e in intro_sect]
-        pattern_str = pattern_str[2:]
 
-    # Longest Common Prefix (Kasai)
     seg_bound = pred_bound[n_cluster]
-    if pattern_str == 'A':
+
+    # Identify section boundary based on pattern type
+    pattern_type, dev_sect = get_pattern_type("".join(pattern))
+    if pattern_type == 'A':
         sect_bound = get_struct_A(sub_sect_bound, seg_bound, sig_shift)
-
-    elif pattern_str == 'A-B':
+    elif pattern_type == 'AB':
         sect_bound = get_struct_A_B(sub_sect_bound, seg_bound, sig_shift)
-
-    elif len(pattern_str.split('A-B')) > 2:
+    elif pattern_type == 'ABA':
         # AB-x-AB or AB-x-AB-y
-        sect_bound = get_struct_A_B_A(sub_sect_bound)
-    else:
-        # A-B-A' or A-B-C type
+        sect_bound = get_struct_A_B_A(sub_sect_bound, dev_sect)
+    elif pattern_type == 'ABC':
+        # A-B-A' or A-B-C
         sect_bound = get_struct_A_B_C(sub_sect_bound, seg_bound, sig_shift)
+    else:
+        raise ValueError(f"Undefined Pattern Type {pattern}")
 
     if intro is not None:
         # Todo: consider using ordereddict
@@ -816,34 +814,34 @@ if __name__ == "__main__":
     import argparse
     from glob import glob
 
-    class config:
+    class cfg:
         data_dir = "../../sonata-dataset-phrase"
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", dest="data_dir", type=str,
-                        default=config.data_dir, help="Path to dataset")
+                        default=cfg.data_dir, help="Path to dataset")
 
     args = parser.parse_args()
 
-    config.data_dir = args.data_dir
-    config.event_dir = os.path.join(args.data_dir, "event")
-    config.midi_dir = os.path.join(args.data_dir, "rendered_midi_no_repeat")
-    config.boundary_dir = os.path.join(args.data_dir, "boundary_predictions")
+    cfg.data_dir = args.data_dir
+    cfg.event_dir = os.path.join(cfg.data_dir, "event")
+    cfg.midi_dir = os.path.join(cfg.data_dir, "midi_no_repeat")
+    cfg.boundary_dir = os.path.join(cfg.data_dir, "boundary_predictions")
 
     for composer in ['mozart', 'beethoven', 'scarlatti', 'haydn']:
-        file_list = glob(os.path.join(config.event_dir, f"{composer}/*.json"))
+        file_list = glob(os.path.join(cfg.event_dir, f"{composer}/*.json"))
 
         for event_file in sorted(file_list):
             file_base = os.path.basename(event_file).split(".")[0]
 
             try:
-                sect_phrase, sect_phrase_pos = main(
-                    composer, file_base, config)
-                with open(os.path.join(config.data_dir, "struct", f"{composer}-{file_base}.json"),
+                struct_event, struct_bound = main(composer, file_base, cfg)
+                with open(os.path.join(cfg.data_dir, "struct", f"{composer}-{file_base}.json"),
                           "w") as f:
-                    json.dump(sect_phrase, f)
+                    json.dump(struct_event, f)
 
-                with open(os.path.join(config.data_dir, "struct_mark", f"{composer}-{file_base}.json"), "w") as f:
-                    json.dump(sect_phrase_pos, f)
+                with open(os.path.join(cfg.data_dir, "struct_mark", f"{composer}-{file_base}.json"),
+                          "w") as f:
+                    json.dump(struct_bound, f)
             except:
                 print(f"Error: {composer}-{file_base}")
