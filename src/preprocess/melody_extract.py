@@ -229,21 +229,21 @@ if __name__ == "__main__":
             mapping_file = os.path.join(midi_dir, composer, f"{basename}.json")
 
             try:
-                event, struct = load_event(orig_event_file)
+                event, mark = load_event(orig_event_file)
                 melody_score = skyline_variation(event)
                 with open(event_file, "w") as f:
-                    json.dump({"note": melody_score, "struct": struct}, f)
+                    json.dump({"note": melody_score, "mark": mark}, f)
 
                 # Render event to midi
                 melody_event, idx_mapping = expand_score(melody_score,
-                                                         struct,
+                                                         mark,
                                                          repeat_mode="no_repeat")
 
                 # render to midi with quantized tempo
                 pm, cpt = event_to_pm(melody_event, quantize_tp=True)
                 pm.write(midi_file)
                 with open(mapping_file, "w") as f:
-                    json.dump({"idx_mapping": idx_mapping, "onset": cpt}, f)
+                    json.dump({"idx_mapping": idx_mapping, "cpt": cpt}, f)
 
             except:
                 print(f"Failed. {event_file}")

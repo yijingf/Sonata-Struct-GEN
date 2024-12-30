@@ -10,15 +10,20 @@ Extract notes (grouped by measures), tempo, time signature from kern file in DAT
             'key': 'C major'                    # key signature (str)
             },
         ...
-    'struct': {
+    'mark': {
         'pattern':  [A, A1, A, A2],       # pattern of sub-sections/repeating materials (list)
-        'attr': {
-            'A':                          # sub-section name
-                {'idx': 0,                # measure index of sub-section onset (int)
-                 'start_pos': 'o-0'}      # beat of the sub-section onset in this measure (str)
+        'sect': {
+            'A':                    # sub-section name
+                {'measure': 0,      # measure index of sub-section onset (int)
+                 'pos': '0'}        # metrical position (quarter note) of sub-section onset (str)
             }, 
             ...
-        }
+        },
+        'key_cpt': [                # key signature change points (list)
+            {'key': 'C major',      # key signature (str) 
+             'measure': 0,          # measure index (int)
+             'pos': '0'},           # metrical position (str)
+             ...]
 }
 
 Note onset position and duration are represented by proportions of quarter note.
@@ -33,12 +38,17 @@ NOTE: The current version has issue parsing repetition sign when the first volta
 Usage: python3 parse_score.py
 
 """
-
+import os
 import re
+import json
 import math
 import music21
+import pandas as pd
+from glob import glob
+from tqdm import tqdm
 from fractions import Fraction
 from music21 import key, stream, pitch
+
 
 # Constants
 import sys
@@ -47,6 +57,26 @@ from utils.constants import DATA_DIR
 
 DEFAULT_TEMPO = 120
 DEFAULT_TIME_SIGNATURE = "4/4"
+
+KEY_SIG_MAP = {
+    "C major": "A minor",
+    "G major": "E minor",
+    "D major": "B minor",
+    "A major": "F# minor",
+    "E major": "C# minor",
+    "B major": "G# minor",
+    "F# major": "D# minor",
+    "C# major": "A# minor",
+    "F major": "D minor",
+    "B- major": "G minor",
+    "E- major": "C minor",
+    "A- major": "F minor",
+    "D- major": "B- minor",
+    "G- major": "E- minor",
+    "C- major": "A- minor"
+}
+
+KEY_SIG_MAP.update({v: i for i, v in KEY_SIG_MAP.items()})
 
 
 def is_kern_note(entry):
@@ -148,11 +178,11 @@ def flatten_event(note_event):
     return flatten_event
 
 
-def get_key(measure, mode="major"):
+def get_key_signature(measure, mode="major"):
     """Get key string from music21.measure. 
 
     Args:
-        measure (_type_): _description_
+        measure (music21.stream.base.Measure)
 
     Returns:
         str: Key signature
@@ -230,7 +260,7 @@ def parse_ts_tp(krn_entry, init_i_measure=1):
     return ts_measure_idx, tp_measure_idx
 
 
-def get_struct_pattern(krn_entry):
+def get_pattern(krn_entry):
     """Get structure pattern, with repeation from humdrum entry.
 
     Args:
@@ -260,8 +290,10 @@ def get_sect_measure_idx(krn_entry):
         krn_entry (list): _description_
 
     Returns:
-        dict: `idx`: onset measure id
-              `start_from_0`: whether the section starts from the downbeat of a measure.
+        dict:
+            {"measure": onset measure index,
+             "pickup":  whether the first measure of a section has a pickup}
+
     """
     sect_measure_idx = {}
 
@@ -285,21 +317,19 @@ def get_sect_measure_idx(krn_entry):
             else:
                 has_note = False
 
-            # start_from_0 = (j == i - 1)
             i_measure = int(last_entry[1: matched.end()])
 
-            sect_measure_idx[sect_str] = {"idx": i_measure,
-                                          "start_from_0": not has_note}
+            sect_measure_idx[sect_str] = {"measure": i_measure, "pickup": has_note}
 
     return sect_measure_idx
 
 
-def krn_attr_extract(krn_file):
-    """Read attributes such pattern, tempo, time signature from .krn file.
+def krn_mark_extract(krn_file):
+    """Read score markings such pattern, tempo, time signature from .krn file.
 
     NOTE: 
-    * tempo is read from .krn directly because it is no available in the .xml converted from .krn using `hum2xml`
-    * time signature is read for sanity check
+    * tempo is read from .krn directly because it is no available in the .xml converted from .krn using `hum2xml`.
+    * time signature is used for sanity check.
 
     Args:
         krn_file (str): file name 
@@ -325,25 +355,22 @@ def krn_attr_extract(krn_file):
     matched = re.match(r'=[0-9]+', init_measure_str)
 
     if bool(matched):
-        init_i_measure = int(init_measure_str[1: matched.end()])
+        init_measure = int(init_measure_str[1: matched.end()])
         if has_note:
-            init_i_measure -= 1
-        # matched = re.match(r'=[0-9]+[-]', init_measure_str)
-        # if not bool(matched):
-        #     init_i_measure -= 1
+            init_measure -= 1
     else:
-        init_i_measure = 0
+        init_measure = 0
 
-    ts, tp = parse_ts_tp(krn_entry, init_i_measure)
+    ts, tp = parse_ts_tp(krn_entry, init_measure)
     if not tp:
         Warning(f"Tempo not found in {krn_file}. Set tempo to 120 BPM.")
-        tp = {init_i_measure: DEFAULT_TEMPO}
+        tp = {init_measure: DEFAULT_TEMPO}
     if not ts:
         Warning(f"Time signature not found in {krn_file}. Set tempo to 4/4.")
-        ts = {init_i_measure: DEFAULT_TIME_SIGNATURE}
+        ts = {init_measure: DEFAULT_TIME_SIGNATURE}
 
     # Get structure pattern
-    pattern = get_struct_pattern(krn_entry)
+    pattern = get_pattern(krn_entry)
     if not len(pattern):
         # Warning(f"No structure pattern found in {krn_file}")
         pattern = ["A"]
@@ -358,34 +385,39 @@ def krn_attr_extract(krn_file):
 
     first_sect = pattern[0]
     if first_sect not in sect_measure_idx:
-        sect_measure_idx[first_sect] = {"idx": init_i_measure,
-                                        "start_from_0": not has_note}
+        sect_measure_idx[first_sect] = {"measure": init_measure, "pickup": has_note}
 
-    krn_attr = {"pattern": pattern,
-                "attr": sect_measure_idx,
+    krn_mark = {"pattern": pattern,
+                "sect": sect_measure_idx,
                 "time_signature": ts,
                 "tempo": tp}
 
-    return krn_attr
+    return krn_mark
 
 
 def part_event_extract(part):
-    """Extract notes grouped by measures from music21.part, with quarter note as time unit.
-    Assume that measure index starts from either 0  of 1 (start from downbeat).
+    """Extract notes grouped by measures from music21.part, with durations and onsets expressed as fractions of a quarter note, e.g. 16th note as 1/4, 8th note as 1/2.
+    Assume that measure index starts from either 0 (if the measure has a pickup) of 1 (if it starts from the downbeat).
 
     Args:
-        part (music21.part): _description_
+        part (music21.stream.base.Part)
 
     Raises:
         ValueError: If not time signature is found.
 
     Returns:
-        dict: {"measure_id": [[note offset, pitch, duration]]}
+        dict: note events grouped by measures
+            {0:                                   # measure index
+                [
+                    ["o-0", "C4", "d-1"],         # [onset, pitch, duration]
+                    ["o-1/2", "D4", "d-1/2"], 
+                    ...
+                ],
+             1: [...],}
     """
-
-    # NOTE: such extension should work as long as the key is not played by both hands
-    event = {}
-    to_extend = {}
+    event = {}  # note events
+    key_cpt = []  # key signature change points
+    to_extend = {}  # ties, NOTE: we assume that there is no key played by both hands
 
     measures = part.getElementsByClass(stream.Measure)
 
@@ -400,6 +432,7 @@ def part_event_extract(part):
 
     init_measure_len = Fraction(measures[0].quarterLength)
 
+    # If there is a pickup
     if init_measure_len < bar_dur:
         # In case there is a repetition bar line in the first measure
         if measures[1].quarterLength < bar_dur:
@@ -418,16 +451,16 @@ def part_event_extract(part):
     last_bar = 0
 
     # Extract events from each measure/bar
-    # NOTE: Assume that the measures are ordered by offset
+    # NOTE: Assume that music21 offset is reliable. `measure.number` is not reliable because music21 also splits measures by double bar line, repeated signs, etc.
+
     for measure in measures:
 
-        # time signature
+        # Time signature
         if measure.timeSignature and measure.timeSignature.ratioString != ts.ratioString:
             ts = measure.timeSignature
             bar_dur = Fraction(ts.barDuration.quarterLength)
 
-            # NOTE: `measure.number` is not reliable because `humlib` splits measure with repetition into two measures.
-            # If time signature changes, starting a new bar anyway
+            # If time signature changes, start a new bar anyway
             bar = last_bar + 1
             note_offset = Fraction(measure.offset)
             pos_offset = Fraction(measure.quarterLength) - bar_dur
@@ -437,9 +470,12 @@ def part_event_extract(part):
                              pos_offset) / bar_dur) + bar_offset
 
         # Update key signature
-        curr_ks = get_key(measure)
-        ks = curr_ks or ks
+        curr_ks = get_key_signature(measure)
+        if curr_ks:
+            val = (Fraction(measure.offset) - note_offset - pos_offset) % bar_dur
+            key_cpt.append({"measure": bar, "pos": val, "key": curr_ks})
 
+        ks = curr_ks or ks
         last_bar = bar
 
         if bar not in event:
@@ -455,81 +491,73 @@ def part_event_extract(part):
             if note.duration.isGrace:
                 continue
 
-            quart_note = Fraction(note.offset) + \
-                Fraction(measure.offset) - note_offset
-            offset = (quart_note - pos_offset) % bar_dur
+            val = Fraction(note.offset) + Fraction(measure.offset) - note_offset
+            onset = (val - pos_offset) % bar_dur
 
             if note.isChord:
 
                 for chord_note in note.notes:
-                    pitch_str = chord_note.pitch.nameWithOctave
-                    pitch_name = normalize_pitch_name(pitch_str)
-                    note_duration = Fraction(chord_note.duration.quarterLength)
+                    pitch_str = normalize_pitch_name(chord_note.pitch.nameWithOctave)
+                    duration = Fraction(chord_note.duration.quarterLength)
 
                     if not chord_note.tie:
-                        event[bar]["event"].append(
-                            [offset, pitch_name, note_duration])
+                        event[bar]["event"].append([onset, pitch_str, duration])
 
                     elif chord_note.tie.type == "start":
-                        to_extend[pitch_name] = [bar, offset, note_duration]
+                        to_extend[pitch_str] = [bar, onset, duration]
 
                     elif chord_note.tie.type == "continue":
-                        if pitch_name in to_extend:
-                            to_extend[pitch_name][-1] += note_duration
+                        if pitch_str in to_extend:
+                            to_extend[pitch_str][-1] += duration
                         else:
-                            to_extend[pitch_name] = [
-                                bar, offset, note_duration]
+                            to_extend[pitch_str] = [bar, onset, duration]
 
                     elif chord_note.tie.type == "stop":
 
-                        if pitch_name in to_extend:
-                            to_extend[pitch_name][-1] += note_duration
+                        if pitch_str in to_extend:
+                            to_extend[pitch_str][-1] += duration
 
                             # Clean up to_extend and update events
-                            prev_bar = to_extend[pitch_name][0]
-                            # bar, offset, duration
-                            entry = to_extend.pop(pitch_name)
+                            prev_bar = to_extend[pitch_str][0]
+                            # bar, onset, duration
+                            entry = to_extend.pop(pitch_str)
                             event[prev_bar]["event"].append(
-                                [entry[1], pitch_name, entry[2]])
+                                [entry[1], pitch_str, entry[2]])
                         else:
-                            event[bar]["event"].append(
-                                [offset, pitch_name, note_duration])
+                            event[bar]["event"].append([onset, pitch_str, duration])
 
             else:
-                pitch_str = note.pitch.nameWithOctave
-                pitch_name = normalize_pitch_name(pitch_str)
-                note_duration = Fraction(note.duration.quarterLength)
+                pitch_str = normalize_pitch_name(note.pitch.nameWithOctave)
+                duration = Fraction(note.duration.quarterLength)
 
                 if not note.tie:
-                    event[bar]["event"].append(
-                        [offset, pitch_name, note_duration])
+                    event[bar]["event"].append([onset, pitch_str, duration])
 
                 elif note.tie.type == "start":
-                    to_extend[pitch_name] = [bar, offset, note_duration]
+                    to_extend[pitch_str] = [bar, onset, duration]
 
                 elif note.tie.type == "continue":
-                    if pitch_name in to_extend:
-                        to_extend[pitch_name][-1] += note_duration
+                    if pitch_str in to_extend:
+                        to_extend[pitch_str][-1] += duration
                     else:
-                        to_extend[pitch_name] = [bar, offset, note_duration]
+                        to_extend[pitch_str] = [bar, onset, duration]
 
                 elif note.tie.type == "stop":
-                    if pitch_name in to_extend:
-                        to_extend[pitch_name][-1] += note_duration
+                    if pitch_str in to_extend:
+                        to_extend[pitch_str][-1] += duration
 
                         # Clean up to_extend and update event
-                        prev_bar = to_extend[pitch_name][0]
-                        # bar, offset, duration
-                        entry = to_extend.pop(pitch_name)
+                        prev_bar = to_extend[pitch_str][0]
+                        # bar, onset, duration
+                        entry = to_extend.pop(pitch_str)
                         event[prev_bar]["event"].append(
-                            [entry[1], pitch_name, entry[2]])
+                            [entry[1], pitch_str, entry[2]])
                     else:
                         # bar 41, Sonata No. 7 in C major, K 309 / K 284b, 2.
-                        event[bar]["event"].append(
-                            [offset, pitch_name, note_duration])
+                        event[bar]["event"].append([onset, pitch_str, duration])
                         continue
 
-    return event
+    return event, key_cpt
 
 
 def event_extract(krn_file, mxml_file=None, sanity_check=True, hand_part='both'):
@@ -540,10 +568,10 @@ def event_extract(krn_file, mxml_file=None, sanity_check=True, hand_part='both')
     s = music21.converter.parse(mxml_file)
     parts = s.getElementsByClass(music21.stream.Part)
 
-    # Extract structure pattern and attribute
-    krn_attr = krn_attr_extract(krn_file)
-    init_sect = krn_attr["pattern"][0]
-    krn_measure_offset = krn_attr["attr"][init_sect]["idx"]
+    # Extract structure pattern and markings from .krn scores
+    krn_mark = krn_mark_extract(krn_file)
+    init_sect = krn_mark["pattern"][0]
+    krn_measure_offset = krn_mark["sect"][init_sect]["measure"]
 
     # Check hand part input
     assert hand_part in ['left', 'right', 'both'], "Invalid hand part."
@@ -558,12 +586,12 @@ def event_extract(krn_file, mxml_file=None, sanity_check=True, hand_part='both')
         elif hand_part == 'right' and i_part == 1:
             continue
 
-        event_part = part_event_extract(part)
+        event_part, key_cpt = part_event_extract(part)
         measure_offset = krn_measure_offset - min(event_part.keys())
 
         # Sanity check
         if sanity_check:
-            check_tempo_shift(event_part, krn_attr, measure_offset)
+            check_tempo_shift(event_part, krn_mark, measure_offset)
 
         # Update events
         if not len(event):
@@ -590,7 +618,7 @@ def event_extract(krn_file, mxml_file=None, sanity_check=True, hand_part='both')
     sorted_event = {}
     sorted_event["note"] = {}
 
-    tp_shift = sorted(krn_attr["tempo"])
+    tp_shift = sorted(krn_mark["tempo"])
     tp_shift.append(max(event.keys()) + 1)
     tp_pos = 0
 
@@ -606,54 +634,118 @@ def event_extract(krn_file, mxml_file=None, sanity_check=True, hand_part='both')
         # Add tempo
         if i >= tp_shift[tp_pos + 1]:
             tp_pos += 1
-        sorted_event["note"][i]["tempo"] = krn_attr["tempo"][tp_shift[tp_pos]]
+        sorted_event["note"][i]["tempo"] = krn_mark["tempo"][tp_shift[tp_pos]]
 
         # Add key
         sorted_event["note"][i]["key"] = event[i]["key"]
 
-    sorted_event["struct"] = {}
-    sorted_event["struct"]["pattern"] = krn_attr["pattern"]
-    sorted_event["struct"]["attr"] = {}
+    sorted_event["mark"] = {}
+    sorted_event["mark"]["pattern"] = krn_mark["pattern"]
+    sorted_event["mark"]["sect"] = {}
 
-    for sect, pos in krn_attr["attr"].items():
+    for sect, pos in krn_mark["sect"].items():
 
-        i = pos["idx"] - measure_offset
+        i = pos["measure"] - measure_offset
         measure_ts = event[i]["time_signature"]
         measure_dur = Fraction(measure_ts) * 4
         measure_split = event[i]["duration"]
 
         # Sanity check
-        if not pos["start_from_0"]:
+        if pos["pickup"]:
             start_pos = measure_dur - measure_split[-1]
             assert start_pos != measure_dur, f"no a bar line found in measure {i}"
             assert start_pos != 0, f"section {sect} in measure {i} should not start from 0"
         else:
             start_pos = Fraction(0)
 
-        sorted_event["struct"]["attr"][sect] = {"idx": i,
-                                                "onset": f"o-{start_pos}"}
+        sorted_event["mark"]["sect"][sect] = {"measure": i, "pos": str(start_pos)}
+
+    sorted_event["mark"]["key_cpt"] = []
+    for entry in key_cpt:
+        sorted_event["mark"]["key_cpt"].append({"key": entry["key"],
+                                                "measure": entry["measure"] - measure_offset,
+                                                "pos": str(entry["pos"])})
 
     return sorted_event
 
 
-if __name__ == "__main__":
-    import os
-    import json
-    from glob import glob
-    from tqdm import tqdm
+def normalize_key_signature(res, title_key):
+    event, mark = res['note'], res['mark']
+    if not title_key:
+        title_key = event[min(event)]['key']
 
+    # if there no key signature change
+    if len(mark['key_cpt']) == 1:
+        # if the key signature is different from the title key
+        if KEY_SIG_MAP[mark['key_cpt'][0]['key']] == title_key:
+            for i in event:
+                event[i]['key'] = title_key
+            mark['key_cpt'][0]['key'] = title_key
+            return {"note": event, "mark": mark}
+        else:
+            return res
+
+    # Multiple key changes
+    else:
+        to_normalize = []
+        if KEY_SIG_MAP[mark['key_cpt'][0]['key']] == title_key:
+            mark['key_cpt'][0]['key'] = title_key
+            to_normalize.append(0)
+
+        first_key = mark['key_cpt'][0]['key']
+        first_key_equivalent = KEY_SIG_MAP[first_key]
+
+        for i, entry in enumerate(mark['key_cpt'][1:]):
+            if entry['key'] == first_key_equivalent:
+                entry['key'] = first_key
+                to_normalize.append(i + 1)
+
+        if not len(to_normalize):
+            return res
+
+        for i in to_normalize:
+            i_st = mark['key_cpt'][i]['measure']
+            if i_st > 0 and mark['key_cpt'][i]['pos'] != '0':
+                i_st += 1
+            if i + 1 < len(mark['key_cpt']):
+                i_ed = mark['key_cpt'][i + 1]['measure']
+                if mark['key_cpt'][i + 1]['pos'] != '0':
+                    i_ed += 1
+            else:
+                i_ed = max(event) + 1
+
+            for j in range(i_st, i_ed):
+                event[j]['key'] = first_key
+
+        return {"note": event, "mark": mark}
+
+
+def main():
     krn_dir = os.path.join(DATA_DIR, "krn")
     mxml_dir = os.path.join(DATA_DIR, "mxml")
     event_dir = os.path.join(DATA_DIR, "event")
 
-    for composer in ['mozart', 'haydn', 'beethoven', 'scarlatti']:
+    composers = ['mozart', 'haydn', 'beethoven', 'scarlatti']
 
-        print(composer)
+    # Get key signature from title
+    pattern = r"\b([A-Ga-g][#b♭♯]?)\s(major|minor|Major|Minor)\b"
+    key_dict = {}
+    for composer in composers:
+        df = pd.read_csv(os.path.join(DATA_DIR, "info", f"{composer}.csv"))
+        for _, row in df.iterrows():
+            title, filename = row['title'], row['filename']
+            matches = re.findall(pattern, title)
+            if not len(matches):
+                continue
+            key_dict[f"{composer}/{filename}"] = " ".join(matches[0])
+
+    sonata_pattern = r"sonata\d+-\d+"
+    for composer in composers:
+
         os.makedirs(os.path.join(event_dir, composer), exist_ok=True)
-
         krn_files = glob(os.path.join(krn_dir, composer, "*.krn"))
 
-        for krn_file in tqdm(krn_files):
+        for krn_file in tqdm(krn_files, desc=f"Process {composer}"):
 
             basename = os.path.basename(krn_file).split(".")[0]
             mxml_file = os.path.join(mxml_dir, composer, f"{basename}.xml")
@@ -662,12 +754,25 @@ if __name__ == "__main__":
             try:
                 # Extract event from krn/mxml file
                 if not os.path.exists(event_file):
-                    sect_event = event_extract(krn_file, mxml_file)
+                    res = event_extract(krn_file, mxml_file)
+
+                    matches = re.findall(sonata_pattern, event_file)
+
+                    # if is not the first movement of a sonata
+                    if matches and int(matches[0].split('-')[-1]) > 1:
+                        title_key = None
+                    else:
+                        title_key = key_dict[f"{composer}/{basename}"]
+                    res = normalize_key_signature(res, title_key)
+
                     with open(event_file, "w") as f:
-                        json.dump(sect_event, f)
-                else:
-                    with open(event_file) as f:
-                        sect_event = json.load(f)
+                        json.dump(res, f)
 
             except:
                 print(f"Failed. {krn_file}")
+
+    return
+
+
+if __name__ == "__main__":
+    main()

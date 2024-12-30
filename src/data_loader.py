@@ -39,6 +39,7 @@ def _mask_collate_batch(examples, pad_id=0, mask_id=4, pred_masked_only=False):
 
     pad = torch.tensor([[mask_id] for _ in range(len(tokens))],
                        dtype=torch.long)
+    # see shift_token_right for decoder input
     decoder_input = torch.cat((pad, decoder_input[:, :-1]), 1)
 
     return input_result, decoder_input, label_result
@@ -49,7 +50,8 @@ class MassDataCollator():
     Data collator
     """
 
-    def __init__(self, mask_id=4, pad_id=0, pred_masked_only=False, mask_pad=True, pad=True):
+    def __init__(self, mask_id=4, pad_id=0, pred_masked_only=False,
+                 mask_pad=True, pad=True):
 
         self.mask_id = mask_id
         self.pad_id = pad_id
@@ -64,10 +66,9 @@ class MassDataCollator():
         # Handle dict or lists with proper padding and conversion to tensor.
 
         if self.pad:
-            inputs, decoder_inputs, labels = _mask_collate_batch(examples,
-                                                                 pad_id=self.pad_id,
-                                                                 mask_id=self.mask_id,
-                                                                 pred_masked_only=self.pred_masked_only)
+            inputs, decoder_inputs, labels = _mask_collate_batch(
+                examples, pad_id=self.pad_id, mask_id=self.mask_id,
+                pred_masked_only=self.pred_masked_only)
         else:
             inputs = _collate_batch(examples, pad_id=self.pad_id)
             decoder_inputs = inputs.clone()
@@ -86,7 +87,7 @@ class MassDataCollator():
             # Decoder Attention Mask, equivalent to key_padding_mask
             # Causal Mask is used in huggingface EncoderDecoder Model by default
             decoder_attention_mask = torch.ones_like(decoder_inputs)
-            attention_mask[decoder_inputs == self.pad_id] = 0
+            decoder_attention_mask[decoder_inputs == self.pad_id] = 0
             batch['decoder_attention_mask'] = decoder_attention_mask
 
         labels[labels == self.pad_id] = -100
@@ -183,13 +184,10 @@ class BertDataCollator():
     def __call__(self, examples):
         # Handle dict or lists with proper padding and conversion to tensor.
         batch = {}
-        input_ids, labels = _dynamic_mask_collate_batch(examples,
-                                                        pad_id=self.pad_id,
-                                                        mask_id=self.mask_id,
-                                                        vocab_size=self.vocab_size,
-                                                        corrupt_ratio=self.corrupt_ratio,
-                                                        mask_ratio=self.mask_ratio,
-                                                        replace_ratio=self.replace_ratio)
+        input_ids, labels = _dynamic_mask_collate_batch(
+            examples, pad_id=self.pad_id, mask_id=self.mask_id,
+            vocab_size=self.vocab_size, corrupt_ratio=self.corrupt_ratio,
+            mask_ratio=self.mask_ratio, replace_ratio=self.replace_ratio)
 
         batch['input_ids'] = input_ids
 
@@ -434,7 +432,7 @@ class BaseNextPhraseCollator():
             # Decoder Attention Mask, equivalent to key_padding_mask
             # Causal Mask is used in huggingface EncoderDecoder Model by default
             decoder_attention_mask = torch.ones_like(decoder_inputs)
-            attention_mask[decoder_inputs == self.pad_id] = 0
+            decoder_attention_mask[decoder_inputs == self.pad_id] = 0
             batch['decoder_attention_mask'] = decoder_attention_mask
 
         labels[labels == self.pad_id] = -100
@@ -468,7 +466,138 @@ class MaskedPairDataset(Dataset):
         return len(self.phrase_pairs)
 
 
-# Dynamic mask measures for next phrase generation
+def _acc_collate_batch(examples, pad_id=0, mask_id=4):
+    """
+    Apply bar-level masking.
+    """
+    melody, acc = [], []
+    for i, e in enumerate(examples):
+        if len(e[1]):
+            melody.append(e[0])
+            acc.append(e[1])
+
+    if isinstance(examples[0][0], (list, tuple, np.ndarray)):
+        melody = [torch.tensor(e, dtype=torch.long) for e in melody]
+        acc = [torch.tensor(e, dtype=torch.long) for e in acc]
+
+    melody_max_len = max(int(x.size(0)) for x in melody)
+    acc_max_len = max(int(x.size(0)) for x in acc)
+
+    n_sample = len(examples)
+    input_result = melody[0].new_full([n_sample, melody_max_len], pad_id)
+    label_result = acc[0].new_full([n_sample, acc_max_len], pad_id)
+    decoder_input = acc[0].new_full([n_sample, acc_max_len], pad_id)
+
+    for i in range(n_sample):
+        input_result[i, :melody[i].shape[0]] = melody[i].clone()
+        decoder_input[i, :acc[i].shape[0]] = acc[i].clone()
+        label_result[i, :acc[i].shape[0]] = acc[i].clone()
+
+    pad = torch.tensor([[mask_id] for _ in range(n_sample)], dtype=torch.long)
+    decoder_input = torch.cat((pad, decoder_input[:, :-1]), 1)
+
+    return input_result, decoder_input, label_result
+
+
+class AccDataCollator():
+    """
+    Data collator
+    """
+
+    def __init__(self, mask_id=4, pad_id=0, mask_pad=True):
+
+        self.mask_id = mask_id
+        self.pad_id = pad_id
+        self.mask_pad = mask_pad
+
+    def __post_init__(self):
+        pass
+
+    def __call__(self, examples):
+        # Handle dict or lists with proper padding and conversion to tensor.
+
+        inputs, decoder_inputs, labels = _acc_collate_batch(examples,
+                                                            pad_id=self.pad_id,
+                                                            mask_id=self.mask_id)
+
+        batch = {"input_ids": inputs}
+        batch['decoder_input_ids'] = decoder_inputs
+
+        if self.mask_pad:
+            # Encoder Attention Mask, equivalent to key_padding_mask
+            attention_mask = torch.ones_like(inputs)
+            attention_mask[inputs == self.pad_id] = 0
+            batch['attention_mask'] = attention_mask
+
+            # Decoder Attention Mask, equivalent to key_padding_mask
+            # Causal Mask is used in huggingface EncoderDecoder Model by default
+            decoder_attention_mask = torch.ones_like(decoder_inputs)
+            decoder_attention_mask[decoder_inputs == self.pad_id] = 0
+            batch['decoder_attention_mask'] = decoder_attention_mask
+
+        labels[labels == self.pad_id] = -100
+        # nn.CrossEntropy ignore -100 by default
+        batch["labels"] = labels
+
+        return batch
+
+
+class AccDataset(Dataset):
+    def __init__(self, melody_token_path, acc_token_path, shuffle=True):
+
+        with open(melody_token_path) as f:
+            melody_phrases = json.load(f)
+
+        with open(acc_token_path) as f:
+            acc_phrases = json.load(f)
+
+        if shuffle:
+            idx = list(range(len(acc_phrases)))
+            random.shuffle(idx)
+            self.melody_phrases = [melody_phrases[i]['token_ids'] for i in idx]
+            self.acc_phrases = [acc_phrases[i]['token_ids'] for i in idx]
+
+    def __getitem__(self, index):
+        """Return
+
+        Args:
+            index (int): index of entry
+        """
+        return self.melody_phrases[index], self.acc_phrases[index]
+
+    def __len__(self):
+        return len(self.acc_phrases)
+
+
+class MaskedAccDataset(Dataset):
+
+    def __init__(self, melody_token_path, full_score_token_path=None, shuffle=True):
+
+        with open(melody_token_path) as f:
+            melody_phrases = json.load(f)
+
+        with open(full_score_token_path) as f:
+            phrases = json.load(f)
+
+        self.melody_tokens = [i['token_ids'] for i in melody_phrases]
+        self.melody_tokens += self.melody_tokens  # double for different masking
+
+        self.tokens = [i['token_ids'] for i in phrases]
+        self.tokens += self.tokens
+
+        self.mask_idx = [i['rand_mask_idx'] for i in phrases] + \
+            [i['center_mask_idx'] for i in melody_phrases]
+
+        if shuffle:
+            idx = list(range(len(self.phrases)))
+            random.shuffle(idx)
+            self.melody_phrases = [self.melody_phrases[i] for i in idx]
+            self.phrases = [self.phrases[i] for i in idx]
+            self.mask_idx = [self.mask_idx[i] for i in idx]
+
+        # Dynamic mask measures for next phrase generation
+
+
 def concat_measures(phrase, bar_id=89, eos_id=1):
     token_ids = deepcopy(phrase['ts-tp'])
     for ids in phrase['token_ids']:
@@ -509,19 +638,18 @@ def corrupt(tokens, vocab_candidate, corrupt_ratio):
     return tokens
 
 
-def _mask_pair_collate_batch(examples, bar_id=89, pad_id=0, eos_id=1, mask_id=4, mask_ratio=.5,
-                             vocab_size=274, corrupt_ratio=.05, pred_masked_only=True):
+def _mask_pair_collate_batch(
+        examples, bar_id=89, pad_id=0, eos_id=1, mask_id=4, mask_ratio=.5,
+        vocab_size=274, corrupt_ratio=.05, pred_masked_only=True):
 
-    vocab_candidate = set(range(vocab_size)).difference([pad_id,
-                                                         eos_id,
-                                                         mask_id])
+    vocab_candidate = set(range(vocab_size)).difference([pad_id, eos_id, mask_id])
 
     encoder_inputs, decoder_inputs, labels = [], [], []
     for i, e in enumerate(examples):
         encoder_inputs.append(concat_measures(e[0], bar_id, eos_id))
         masked_decoder_input = mask_concat_measures(deepcopy(e[1]),
-                                                   bar_id, eos_id, mask_id,
-                                                   mask_ratio)
+                                                    bar_id, eos_id, mask_id,
+                                                    mask_ratio)
         if corrupt_ratio > 0:
             corrupt(masked_decoder_input, vocab_candidate, corrupt_ratio)
 
@@ -532,10 +660,8 @@ def _mask_pair_collate_batch(examples, bar_id=89, pad_id=0, eos_id=1, mask_id=4,
             labels.append(concat_measures(e[2], bar_id, eos_id))
 
     if isinstance(encoder_inputs[0], (list, tuple, np.ndarray)):
-        encoder_inputs = [torch.tensor(e, dtype=torch.long)
-                          for e in encoder_inputs]
-        decoder_inputs = [torch.tensor(e, dtype=torch.long)
-                          for e in decoder_inputs]
+        encoder_inputs = [torch.tensor(e, dtype=torch.long) for e in encoder_inputs]
+        decoder_inputs = [torch.tensor(e, dtype=torch.long) for e in decoder_inputs]
         labels = [torch.tensor(e, dtype=torch.long) for e in labels]
 
     max_len_encoder = max(int(x.size(0)) for x in encoder_inputs)
@@ -560,8 +686,7 @@ def _mask_pair_collate_batch(examples, bar_id=89, pad_id=0, eos_id=1, mask_id=4,
             label_seq_len = labels[i].shape[0]
             label_ids[i, :label_seq_len] = labels[i]
 
-    pad = torch.tensor([[mask_id] for _ in range(len(labels))],
-                       dtype=torch.long)
+    pad = torch.tensor([[mask_id] for _ in range(len(labels))], dtype=torch.long)
     decoder_ids = torch.cat((pad, decoder_ids[:, :-1]), 1)
 
     return encoder_ids, decoder_ids, label_ids
@@ -591,14 +716,10 @@ class MaskNextPhraseCollator():
     def __call__(self, examples):
         # Handle dict or lists with proper padding and conversion to tensor.
 
-        inputs, decoder_inputs, labels = _mask_pair_collate_batch(examples,
-                                                                  pad_id=self.pad_id,
-                                                                  mask_id=self.mask_id,
-                                                                  bar_id=self.bar_id,
-                                                                  mask_ratio=self.mask_ratio,
-                                                                  vocab_size=self.vocab_size,
-                                                                  corrupt_ratio=self.corrupt_ratio,
-                                                                  pred_masked_only=self.pred_masked_only)
+        inputs, decoder_inputs, labels = _mask_pair_collate_batch(
+            examples, pad_id=self.pad_id, mask_id=self.mask_id, bar_id=self.bar_id,
+            mask_ratio=self.mask_ratio, vocab_size=self.vocab_size,
+            corrupt_ratio=self.corrupt_ratio, pred_masked_only=self.pred_masked_only)
 
         batch = {"input_ids": inputs}
         batch['decoder_input_ids'] = decoder_inputs
@@ -612,7 +733,7 @@ class MaskNextPhraseCollator():
             # Decoder Attention Mask, equivalent to key_padding_mask
             # Causal Mask is used in huggingface EncoderDecoder Model by default
             decoder_attention_mask = torch.ones_like(decoder_inputs)
-            attention_mask[decoder_inputs == self.pad_id] = 0
+            decoder_attention_mask[decoder_inputs == self.pad_id] = 0
             batch['decoder_attention_mask'] = decoder_attention_mask
 
         labels[labels == self.pad_id] = -100
@@ -671,13 +792,10 @@ class MaskedSegmentCollator():
     def __call__(self, examples):
         # Handle dict or lists with proper padding and conversion to tensor.
 
-        inputs, decoder_inputs, labels = _mask_seg_collate_batch(examples,
-                                                                 pad_id=self.pad_id,
-                                                                 mask_id=self.mask_id,
-                                                                 mask_ratio=self.mask_ratio,
-                                                                 vocab_size=self.vocab_size,
-                                                                 corrupt_ratio=self.corrupt_ratio,
-                                                                 pred_masked_only=self.pred_masked_only)
+        inputs, decoder_inputs, labels = _mask_seg_collate_batch(
+            examples, pad_id=self.pad_id, mask_id=self.mask_id,
+            mask_ratio=self.mask_ratio, vocab_size=self.vocab_size,
+            corrupt_ratio=self.corrupt_ratio, pred_masked_only=self.pred_masked_only)
 
         batch = {"input_ids": inputs}
         batch['decoder_input_ids'] = decoder_inputs
@@ -691,7 +809,7 @@ class MaskedSegmentCollator():
             # Decoder Attention Mask, equivalent to key_padding_mask
             # Causal Mask is used in huggingface EncoderDecoder Model by default
             decoder_attention_mask = torch.ones_like(decoder_inputs)
-            attention_mask[decoder_inputs == self.pad_id] = 0
+            decoder_attention_mask[decoder_inputs == self.pad_id] = 0
             batch['decoder_attention_mask'] = decoder_attention_mask
 
         labels[labels == self.pad_id] = -100
@@ -711,8 +829,9 @@ def mask_seg(tokens, mask_id, mask_ratio=.5):
     return tokens
 
 
-def _mask_seg_collate_batch(examples, pad_id=0, eos_id=1, mask_id=4, mask_ratio=.5,
-                            vocab_size=274, corrupt_ratio=.02, pred_masked_only=True):
+def _mask_seg_collate_batch(
+        examples, pad_id=0, eos_id=1, mask_id=4, mask_ratio=.5, vocab_size=274,
+        corrupt_ratio=.02, pred_masked_only=True):
 
     vocab_candidate = set(range(vocab_size)).difference([pad_id,
                                                          eos_id,

@@ -105,13 +105,13 @@ if __name__ == "__main__":
             base_name = os.path.basename(event_file)
 
             # Load full-score for getting section pickups
-            score_event, struct = load_event(event_file)
-            event, _ = expand_score(score_event, struct, "no_repeat")
+            score_event, mark = load_event(event_file)
+            event, _ = expand_score(score_event, mark, "no_repeat")
 
             # Load tempo/time signature change point file
             cpt_file = event_file.replace("event", "midi_no_repeat")
             with open(cpt_file) as f:
-                cpts = json.load(f)['onset']
+                cpts = json.load(f)['cpt']
             cpts.append({'measure': max(event) + 1})
             pickups = get_sect_pickups(event, cpts[:-1])
 

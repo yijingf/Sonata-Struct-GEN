@@ -35,7 +35,7 @@ def ts_tp_ratio(ts, tp):
 
 
 def normalize_tp(tp):
-    """Normalize tempo to its closest regular tempo.
+    """Normalize tempo to its closest quantized tempo.
 
     Args:
         tp (int): original tempo
@@ -170,10 +170,10 @@ def load_event(fname):
                  "key": "C major"}
             }
         ```
-        struct (dict): structure notation on score, e.g.
+        mark (dict): markings on score, e.g.
             ```
                 {"pattern": ["A"],
-                 "A": {"idx": 0, "onset": "o-0"}}}
+                 "A": {"measure": 0, "pos": "o-0"}}}
             ```
     """
     with open(fname) as f:
@@ -183,9 +183,9 @@ def load_event(fname):
     for i in event["note"]:
         note_event[int(i)] = event["note"][i].copy()
 
-    struct = event["struct"]
+    mark = event["mark"]
 
-    return note_event, struct
+    return note_event, mark
 
 
 def trim_event(measures, start=(0, 0), end=(0, 0)):

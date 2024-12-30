@@ -7,7 +7,7 @@ from copy import deepcopy
 from fractions import Fraction
 
 from utils.decode import decode_token_to_pm
-from utils.common import trim_event, token2v, normalize_tp
+from utils.common import trim_event, normalize_tp
 
 
 class Event:
@@ -95,7 +95,7 @@ def remove_repeat(pattern):
     return new_pattern
 
 
-def expand_score(score_event, struct, repeat_mode="no_repeat"):
+def expand_score(score_event, mark, repeat_mode="no_repeat"):
     """Unfold repeats from scores given pattern notation from .krn file.
 
     Example: 
@@ -115,10 +115,10 @@ def expand_score(score_event, struct, repeat_mode="no_repeat"):
                  "key": "C major"}
             }
         ```
-        struct (dict): structure notation on score, e.g.
+        mark (dict): markings on score, e.g.
         ```
             {"pattern": ["A"],
-             "A": {"idx": 0, "onset": "o-0"}}}
+             "A": {"measure": 0, "pos": "1/2"}}}
         ```
         repeat mode (str, optional): `volta_only`, `no_repeat` or `full`. Defaults to `volta_only`.
 
@@ -128,21 +128,21 @@ def expand_score(score_event, struct, repeat_mode="no_repeat"):
     """
 
     # Sort sections
-    onsets = sorted([(i, v) for i, v in struct["attr"].items()],
-                    key=lambda x: (x[1]["idx"], x[1]["onset"]))
+    onsets = sorted([(i, v) for i, v in mark["sect"].items()],
+                    key=lambda x: (x[1]["measure"], x[1]["pos"]))
     sub_sect_event = get_sub_sect_event(score_event, onsets)
 
     if repeat_mode == "no_repeat":
-        sects = no_repeat_pattern(struct["pattern"])
+        sects = no_repeat_pattern(mark["pattern"])
     elif repeat_mode == "volta_only":
         # Unfold repeats only if there is a volta.
-        sects = remove_repeat(struct["pattern"])
+        sects = remove_repeat(mark["pattern"])
     elif repeat_mode == "full":
-        sects = struct["pattern"]
+        sects = mark["pattern"]
     else:
         raise ValueError("Set repeat_mode to 'volta_only', 'no_repeat' or 'full'.")
 
-    event, idx_mapping = concat_event(sub_sect_event, sects, struct["attr"])
+    event, idx_mapping = concat_event(sub_sect_event, sects, mark["sect"])
     return event, idx_mapping
 
 
@@ -228,7 +228,7 @@ def concat_event(sub_sect_event, sects, sect_onset_dict, i_measure=0):
         sects (list): List of sub-section name.
         sect_onset_dict (dict): A dictionary of section onset, e.g.
             ```
-                {"A": {"idx": 0, "onset": "o-0"}}`
+                {"A": {"measure": 0, "pos": "1/2"}}`
             ```
         i_measure (int, optional): Starting measure index of concatenated event. Defaults to 0.
 
@@ -250,15 +250,20 @@ def concat_event(sub_sect_event, sects, sect_onset_dict, i_measure=0):
             if i_measure in res:
                 res[i_measure]["event"] += deepcopy(tmp_event[i]["event"])
             else:
-                idx_mapping[i_measure] = i
+                # idx_mapping[i_measure] = i
                 res[i_measure] = deepcopy(tmp_event[i])
+
+            measure_set = idx_mapping.get(i_measure, set([]))
+            measure_set.add(i)
+            idx_mapping[i_measure] = measure_set
             i_measure += 1
 
         if i_sect < len(sects) - 1:
             next_sub_sect = sects[i_sect + 1]
-            if sect_onset_dict[next_sub_sect]["onset"] != "o-0":
+            if sect_onset_dict[next_sub_sect]["pos"] != "0":
                 i_measure -= 1
 
+    idx_mapping = {k: list(v) for k, v in idx_mapping.items()}
     return res, idx_mapping
 
 
@@ -269,7 +274,7 @@ def get_sub_sect_event(event, sub_sect_onset):
         event (dict): Score events. 
         sub_sect_onset (list): A list of sub-section onset, e.g.
             ```
-                [("A", {"idx": 0, "onset": "o-0"})]
+                [("A", {"measure": 0, "pos": "1/2"})]
             ```
 
     Returns:
@@ -279,22 +284,16 @@ def get_sub_sect_event(event, sub_sect_onset):
             ```
     """
     onsets = deepcopy(sub_sect_onset)
-    onsets.append(("Fin", {"idx": max(event) + 1, "onset": "o-0"}))
+    onsets.append(("Fin", {"measure": max(event) + 1, "pos": "0"}))
 
     # Get events for each sub section
     sub_sect_event = {}
     for i, v in enumerate(onsets[:-1]):
+
         sub_sect = v[0]
-
-        i_st = v[1]["idx"]
-        offset_st = token2v(v[1]["onset"])
-
-        i_ed = onsets[i + 1][1]["idx"]
-        offset_ed = token2v(onsets[i + 1][1]["onset"])
-
-        sub_sect_event[sub_sect] = trim_event(event,
-                                              start=(i_st, offset_st),
-                                              end=(i_ed, offset_ed))
+        start = v[1]["measure"], Fraction(v[1]["pos"])
+        end = onsets[i + 1][1]["measure"], Fraction(onsets[i + 1][1]["pos"])
+        sub_sect_event[sub_sect] = trim_event(event, start, end)
 
     return sub_sect_event
 

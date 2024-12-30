@@ -28,8 +28,8 @@ def main(event_file, output_dir, repeat_mode="no_repeat", to_audio=True, fs=4410
     audio_file = os.path.join(output_dir, composer, f"{prefix}.wav")
 
     # Render event to midi
-    score_event, struct = load_event(event_file)
-    event, idx_mapping = expand_score(score_event, struct, repeat_mode)
+    score_event, mark = load_event(event_file)
+    event, idx_mapping = expand_score(score_event, mark, repeat_mode)
 
     # render to midi with quantized tempo
     pm, cpt = event_to_pm(event, quantize_tp=True)
@@ -37,7 +37,7 @@ def main(event_file, output_dir, repeat_mode="no_repeat", to_audio=True, fs=4410
     pm.write(midi_file)
 
     with open(mapping_file, "w") as f:
-        json.dump({"idx_mapping": idx_mapping, "onset": cpt}, f)
+        json.dump({"idx_mapping": idx_mapping, "cpt": cpt}, f)
 
     if to_audio:
         # Render midi to audio

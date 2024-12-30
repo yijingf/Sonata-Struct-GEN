@@ -5,28 +5,28 @@ from fractions import Fraction
 from utils.common import normalize_tp
 
 
-def get_t_bar(time_signature, tempo, **kwargs):
+def get_t_bar(time_signature, tempo, normalize=False, **kwargs):
     """Get bar duration in seconds
 
     Args:
         time_signature (str): time signature, i.e. "4/4".
-        tempo (str): tempo
+        tempo (int): tempo
     """
     # normalized_tempo = int(tempo / 12) * 12  # To avoid weird ticks
-    normalized_tempo = normalize_tp(tempo)
+    if normalize:
+        tempo = normalize_tp(tempo)
     if len(time_signature.split('/')) > 2:
-        time_signature = Fraction(
-            time_signature[:-2]) / int(time_signature[-1])
-    t_bar = Fraction(time_signature) * 4 * 60 / normalized_tempo
+        time_signature = Fraction(time_signature[:-2]) / int(time_signature[-1])
+    t_bar = Fraction(time_signature) * 4 * 60 / tempo
     return t_bar
 
 
-def t_to_bar_beat(t, ts_shift, scale=6):
-    """Convert time to bar/beat in unrolled midi
+def t_to_bar_pos(t, ts_cpt, scale=6):
+    """Convert time to bar/position in unfolded midi
 
     Args:
         t (float): time
-        ts_shift (list): A List of dictionary where each element marks the change in tempo and time signature, i.e.
+        ts_cpt (list): A list of tempo and time signature change points, i.e.
             [{"measure": 0, "t": 0, "tempo", "tempo": 120, "time_signature": 4/4}]
         scale (int, optional): round to the 1/scale quarter note. Defaults to 6.
 
@@ -34,27 +34,27 @@ def t_to_bar_beat(t, ts_shift, scale=6):
         _type_: _description_
     """
 
-    n_shifts = len(ts_shift) - 1
-    if t >= ts_shift[-2]['t']:
+    n_shifts = len(ts_cpt) - 1
+    if t >= ts_cpt[-2]['t']:
         i = n_shifts
     else:
         for i in range(1, n_shifts):
-            if t <= ts_shift[i]['t']:
+            if t <= ts_cpt[i]['t']:
                 break
 
     i -= 1
-    tp = ts_shift[i]['tempo']
-    ts = ts_shift[i]['time_signature']
+    tp = ts_cpt[i]['tempo']
+    ts = ts_cpt[i]['time_signature']
 
     numerator = int(Fraction(ts) * 4)
     t_bar = get_t_bar(ts, tp)
 
-    i_measure = ts_shift[i]['measure']
+    i_measure = ts_cpt[i]['measure']
 
     # Round to closest measure
     round_thresh = (numerator - 1 / scale) / numerator
-    n_measure = math.ceil((t - ts_shift[i]['t']) / t_bar - round_thresh)
-    t_pos = t - ts_shift[i]['t'] - t_bar * n_measure
+    n_measure = math.ceil((t - ts_cpt[i]['t']) / t_bar - round_thresh)
+    t_pos = t - ts_cpt[i]['t'] - t_bar * n_measure
     i_measure += n_measure
 
     # Round to the closest 1/scale quarter note
@@ -64,8 +64,8 @@ def t_to_bar_beat(t, ts_shift, scale=6):
     return int(i_measure), pos
 
 
-def bar_beat_to_t(pos, sig_shift):
-    """Convert bar/beat to time in the unrolled midi.
+def bar_pos_to_t(pos, sig_shift):
+    """Convert bar/position to time in the unrolled midi.
 
     Args:
         pos (tuple): (bar, beat)

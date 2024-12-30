@@ -74,8 +74,8 @@ def main(fname):
     base_name = os.path.basename(fname)
 
     # Quantize Melody
-    score, struct = load_event(fname)
-    melody, _ = expand_score(score, struct, "no_repeat")
+    score, mark = load_event(fname)
+    melody, _ = expand_score(score, mark, "no_repeat")
     quantized_melody = quantize(melody, step_per_beat=4)
 
     # Save quantized unfolded melody
