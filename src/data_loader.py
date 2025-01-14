@@ -37,9 +37,8 @@ def _mask_collate_batch(examples, pad_id=0, mask_id=4, pred_masked_only=False):
         else:
             label_result[i, :seq_len] = tokens[i]
 
-    pad = torch.tensor([[mask_id] for _ in range(len(tokens))],
-                       dtype=torch.long)
-    # see shift_token_right for decoder input
+    # see shift_tokens_right for decoder input
+    pad = torch.tensor([[mask_id] for _ in range(len(tokens))], dtype=torch.long)
     decoder_input = torch.cat((pad, decoder_input[:, :-1]), 1)
 
     return input_result, decoder_input, label_result
@@ -363,8 +362,8 @@ class BasePairDataset(Dataset):
         Args:
             index (int): index of entry
         """
-        phrase_1, phrase_2 = self.phrase_pairs[index]
-        return phrase_1, phrase_2
+        phrase_0, phrase_1 = self.phrase_pairs[index]
+        return phrase_0, phrase_1
 
     def __len__(self):
         return len(self.phrase_pairs)
@@ -417,11 +416,10 @@ class BaseNextPhraseCollator():
     def __call__(self, examples):
         # Handle dict or lists with proper padding and conversion to tensor.
 
-        inputs, decoder_inputs = _base_pair_collate_batch(
-            examples, pad_id=self.pad_id)
+        inputs, decoder_inputs = _base_pair_collate_batch(examples,
+                                                          pad_id=self.pad_id)
         batch = {"input_ids": inputs}
         batch['decoder_input_ids'] = decoder_inputs
-        labels = decoder_inputs.clone()
 
         if self.mask_pad:
             # Encoder Attention Mask, equivalent to key_padding_mask
@@ -435,6 +433,10 @@ class BaseNextPhraseCollator():
             decoder_attention_mask[decoder_inputs == self.pad_id] = 0
             batch['decoder_attention_mask'] = decoder_attention_mask
 
+        # Shift decoder inputs one token left (remove the phrase_type token), and pad
+        pad = torch.tensor([[self.pad_id] for _ in range(len(inputs))],
+                           dtype=torch.long)
+        labels = torch.cat((decoder_inputs.clone()[:, 1:], pad), 1)
         labels[labels == self.pad_id] = -100
         # nn.CrossEntropy ignore -100 by default
         batch["labels"] = labels
@@ -493,6 +495,7 @@ def _acc_collate_batch(examples, pad_id=0, mask_id=4):
         decoder_input[i, :acc[i].shape[0]] = acc[i].clone()
         label_result[i, :acc[i].shape[0]] = acc[i].clone()
 
+    # right shift
     pad = torch.tensor([[mask_id] for _ in range(n_sample)], dtype=torch.long)
     decoder_input = torch.cat((pad, decoder_input[:, :-1]), 1)
 
@@ -875,8 +878,7 @@ def _mask_seg_collate_batch(
             label_seq_len = labels[i].shape[0]
             label_ids[i, :label_seq_len] = labels[i]
 
-    pad = torch.tensor([[mask_id] for _ in range(len(labels))],
-                       dtype=torch.long)
+    pad = torch.tensor([[mask_id] for _ in range(len(labels))], dtype=torch.long)
     decoder_ids = torch.cat((pad, decoder_ids[:, :-1]), 1)
 
     return encoder_ids, decoder_ids, label_ids
