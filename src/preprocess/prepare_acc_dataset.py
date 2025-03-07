@@ -13,34 +13,12 @@ from collections import Counter
 
 import sys
 sys.path.append("..")
-from utils.event import Event, expand_score
-from utils.common import load_event, load_note_event, normalize_event
+from utils.vocab import clean_vocab
+from utils.event import expand_score
+from utils.common import load_event, load_note_event, normalize_tp, normalize_event
 from utils.tokenizer import BertTokenizer
 from preprocess.segment import segment, get_sect_pickups
 from preprocess.dataset import make_masked_dataset
-
-
-def clean_vocab(vocab_cnt, freq_thresh=50):
-    """Remove irregular note onset/duration
-
-    Args:
-        vocab_cnt (collections.Counter): _description_
-    """
-    orig_vocab = list(vocab_cnt.keys())
-    for token in orig_vocab:
-        e = Event(token)
-        if e.event_type != "pitch":
-            if e.val == 0:
-                continue
-            if not all([e.val.denominator % 5,
-                        e.val.denominator % 7,
-                        e.val.denominator % 11,
-                        e.val.denominator % 24,
-                        e.val.denominator % 32]):
-                del vocab_cnt[e.token_str]
-
-    vocab = [i for i, v in vocab_cnt.items() if v >= freq_thresh]
-    return vocab
 
 
 def get_filtered_idx(segments, base_vocab, max_measure_len=64, max_len_seq=512):
@@ -107,6 +85,8 @@ if __name__ == "__main__":
             # Load full-score for getting section pickups
             score_event, mark = load_event(event_file)
             event, _ = expand_score(score_event, mark, "no_repeat")
+            for i in event:
+                event[i]['tempo'] = normalize_tp(event[i]['tempo'])
 
             # Load tempo/time signature change point file
             cpt_file = event_file.replace("event", "midi_no_repeat")

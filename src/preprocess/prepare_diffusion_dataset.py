@@ -11,8 +11,8 @@ from fractions import Fraction
 import sys
 sys.path.append("..")
 
-from preprocess.quantize import quantize
-from preprocess.melody_extract import skyline_variation
+from preprocess.diffusion_quantize import quantize
+from preprocess.extract_melody import skyline_variation
 from preprocess.extract_accompaniment import extract_acc
 from utils.event import expand_score, event_to_pm, Event
 from utils.common import load_event, normalize_event
