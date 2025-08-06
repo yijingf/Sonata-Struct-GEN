@@ -81,3 +81,18 @@ def bar_pos_to_t(pos, sig_shift):
     t_diff = n_measure * get_t_bar(**sig_shift[i_shift])
 
     return sig_shift[i_shift]['t'] + t_diff
+
+
+def get_t_fin(n_bar, onset, **kwargs):
+    """Get time (in seconds) of last bar line.
+
+    Args:
+        idx_mapping (dict): _description_
+        onset (list): _description_
+    """
+    n_bar_last_seg = n_bar + 1 - onset[-1]['measure']
+
+    t_last_seg = n_bar_last_seg * get_t_bar(**onset[-1])
+
+    t_fin = onset[-1]['t'] + t_last_seg
+    return t_fin

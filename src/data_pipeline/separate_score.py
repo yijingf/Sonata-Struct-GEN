@@ -1,11 +1,35 @@
+"""
+separate_score.py
+
+Description:
+    Separates the melody (skyline) from the accompaniment in symbolic music files. 
+    Also stores the rendered MIDI from the full score, along with time signature and tempo change points.
+
+    Input files are located in:
+        - DATA_DIR/event/<composer>
+    Output is saved in:
+        - DATA_DIR/event_part/melody/<composer>
+        - DATA_DIR/event_part/acc/<composer>
+        - DATA_DIR/midi/<composer>
+Usage:
+    python3 separate_score.py
+"""
+
 import os
 import json
+import tqdm
 from copy import deepcopy
 from fractions import Fraction
 
 import sys
-sys.path.append("..")
-from utils.event import Event
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.common import load_event, get_file_list
+from utils.event import Event, expand_score, event_to_pm
+from utils.decode import decode_token_to_event, encode_event_to_token
+
+# Constants
+from utils.constants import DATA_DIR, COMPOSERS
+dummy_ts_tp = ["ts-4/4", "tp-120"]
 
 
 def skyline(event, duration_first=True):
@@ -199,51 +223,67 @@ def melody_extract_pitch(event):
     return melody_event
 
 
-if __name__ == "__main__":
+def extract_acc(event, melody_event):
 
-    from glob import glob
-    from tqdm import tqdm
-    from utils.common import load_event
-    from utils.event import expand_score, event_to_pm
+    acc_event = deepcopy(event)
 
-    repeat_mode = "no_repeat"
-    DATA_DIR = "../../sonata-dataset-phrase"
+    for i in range(len(event)):
+        notes = decode_token_to_event(dummy_ts_tp + event[i]['event'])[-1][0]
+        melody_notes = decode_token_to_event(
+            dummy_ts_tp + melody_event[i]['event'])[-1][0]
 
-    orig_event_dir = os.path.join(DATA_DIR, "event")
-    event_dir = os.path.join(DATA_DIR, "event_skyline")
-    midi_dir = os.path.join(DATA_DIR, "skyline_midi_no_repeat")
+        acc_notes = []
+        for note in notes:
+            if note not in melody_notes:
+                acc_notes.append(note)
 
-    for composer in ['mozart', 'haydn', 'beethoven', 'scarlatti']:
+        acc_event[i]['event'] = encode_event_to_token([acc_notes])
 
-        os.makedirs(os.path.join(event_dir, composer), exist_ok=True)
+    return acc_event
+
+
+def main():
+    event_dir = os.path.join(DATA_DIR, "event")
+    melody_dir = os.path.join(DATA_DIR, "event_part", "melody")
+    acc_dir = os.path.join(DATA_DIR, "event_part", "acc")
+    midi_dir = os.path.join(DATA_DIR, "midi")
+
+    for composer in COMPOSERS:
+        os.makedirs(os.path.join(melody_dir, composer), exist_ok=True)
+        os.makedirs(os.path.join(acc_dir, composer), exist_ok=True)
         os.makedirs(os.path.join(midi_dir, composer), exist_ok=True)
 
-        event_files = sorted(
-            glob(os.path.join(orig_event_dir, composer, "*.json")))
+    for event_file in tqdm(sorted(get_file_list(event_dir))):
+        try:
+            score, mark = load_event(event_file)
+            event, idx_mapping = expand_score(score, mark, repeat_mode="no_repeat")
 
-        for orig_event_file in tqdm(event_files, desc=f"Process {composer}"):
-            basename = os.path.basename(orig_event_file).split(".")[0]
+            # render to midi with normalized tempo
+            mapping_file = event_file.replace(event_dir, midi_dir)
+            midi_file = mapping_file.replace(".json", ".mid")
 
-            event_file = os.path.join(event_dir, composer, f"{basename}.json")
-            midi_file = os.path.join(midi_dir, composer, f"{basename}.mid")
-            mapping_file = os.path.join(midi_dir, composer, f"{basename}.json")
+            pm, cpt = event_to_pm(event, quantize_tp=True)
+            pm.write(midi_file)
 
-            try:
-                event, mark = load_event(orig_event_file)
-                melody_score = skyline_variation(event)
-                with open(event_file, "w") as f:
-                    json.dump({"note": melody_score, "mark": mark}, f)
+            with open(mapping_file, "w") as f:
+                json.dump({"idx_mapping": idx_mapping, "cpt": cpt}, f)
 
-                # Render event to midi
-                melody_event, idx_mapping = expand_score(melody_score,
-                                                         mark,
-                                                         repeat_mode="no_repeat")
+            melody_event = skyline_variation(event)
+            acc_event = extract_acc(event, melody_event)
 
-                # render to midi with quantized tempo
-                pm, cpt = event_to_pm(melody_event, quantize_tp=True)
-                pm.write(midi_file)
-                with open(mapping_file, "w") as f:
-                    json.dump({"idx_mapping": idx_mapping, "cpt": cpt}, f)
+            melody_file = event_file.replace(event_dir, melody_dir)
+            with open(melody_file, "w") as f:
+                json.dump(melody_event, f)
 
-            except:
-                print(f"Failed. {event_file}")
+            acc_file = event_file.replace(event_dir, acc_dir)
+            with open(acc_file, "w") as f:
+                json.dump(acc_event, f)
+
+        except:
+            print(f"Failed. {event_file}")
+
+    return
+
+
+if __name__ == "__main__":
+    main()

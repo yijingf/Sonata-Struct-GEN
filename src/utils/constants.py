@@ -27,3 +27,4 @@ for key in ["C", "D", "E", "F", "G", "A", "B"]:
 # Bins of regular tempi
 old_TEMPO_BIN = np.array([24, 40, 60, 72, 96, 120, 144, 160, 192, 200])
 TEMPO_BIN = np.array([24, 40, 60, 80, 100, 120, 150, 160, 192])
+COMPOSERS = ['beethoven', 'mozart', 'scarlatti', 'haydn']

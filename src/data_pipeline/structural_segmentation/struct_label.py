@@ -7,6 +7,20 @@ from utils.align import t_to_bar_pos
 # Function to calculate overlap proportion
 
 
+def relabel_sequence(seq):
+    label_mapping = {}
+    relabeled_seq = []
+    current_label = 0
+
+    for item in seq:
+        if item not in label_mapping:
+            label_mapping[item] = current_label
+            current_label += 1
+        relabeled_seq.append(label_mapping[item])
+
+    return relabeled_seq
+
+
 def calculate_overlap(final_segments, pred_segments):
     start_B, end_B = final_segments
     start_A, end_A, _ = pred_segments

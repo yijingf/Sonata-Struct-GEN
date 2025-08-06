@@ -1,10 +1,21 @@
 #!/bin/bash
 #
-# Convert .krn in `path/to/krn-dataset/krn` to music .xml in `path/to/krn-dataset/mxml` using humextra (https://github.com/craigsapp/humextra).
-# Usage: bash krn2xml.sh path/to/krn-dataset
+# Description: Converts .krn files under krn-files/composer to MusicXML (.xml) using humextra tools.
+# Usage: ./krn2xml.sh /path/to/krn-files
 #
+# Example:
+#   ./krn2xml.sh ../
+#
+# Notes:
+# - Requires humextra (https://github.com/craigsapp/humextra) to be installed and in PATH.
+# - Output .xml files will be saved under <krn-files/composer> directories.
 
-root_dir=$1 #"../../sonata-dataset"
+if [ -z $1 ]; then
+  echo "Specify the path to .krn files" >&2
+  exit 1
+fi
+
+root_dir=$1
 
 declare -a composers=("mozart" "beethoven" "haydn" "scarlatti")
 

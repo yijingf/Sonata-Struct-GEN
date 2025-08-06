@@ -1,14 +1,22 @@
 """Helper functions
 """
-
+import os
 import json
 import numpy as np
+from glob import glob
 from copy import deepcopy
 from music21 import pitch
 from fractions import Fraction
 
 # Constants
-from utils.constants import PITCH_OFFSET_DICT, TEMPO_BIN
+from utils.constants import PITCH_OFFSET_DICT, TEMPO_BIN, COMPOSERS
+
+
+def get_file_list(root_dir, file_type="json"):
+    file_list = []
+    for composer in COMPOSERS:
+        file_list += sorted(glob(os.path.join(root_dir, composer, f"*.{file_type}")))
+    return file_list
 
 
 def token2v(token):

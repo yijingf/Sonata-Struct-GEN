@@ -333,15 +333,13 @@ def event_to_pm(event, quantize_tp=True):
         if quantize_tp:
             # Quantize tempo to discrete values
             tp = normalize_tp(event[i]["tempo"])
-            ts = event[i]["time_signature"]
         else:
             # Todo: Original one, will be removed in the future
             tp = int(event[i]["tempo"] / 12) * 12  # To avoid weird ticks
-            ts = event[i]["time_signature"]
             # ts = normalize_ts(event[i]["time_signature"])
 
         event[i]["tempo"] = tp
-        event[i]["time_signature"] = ts
+        ts = event[i]["time_signature"]
 
         if tp != prev_tp or ts != prev_ts:
 
@@ -373,3 +371,14 @@ def event_to_pm(event, quantize_tp=True):
     pm.instruments.append(inst)
 
     return pm, cpt
+
+
+def trunc_duration(event):
+    for i in event:
+        ts = Fraction(event[i]['time_signature']) * 4
+        for j, token in enumerate(event[i]['event']):
+            e = Event(token)
+            if e.event_type == 'duration' and e.val > ts:
+                event[i]['event'][j] = f"d-{ts}"
+
+    return event

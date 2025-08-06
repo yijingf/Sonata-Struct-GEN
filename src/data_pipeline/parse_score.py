@@ -1,43 +1,59 @@
 """
-Extract notes (grouped by measures), tempo, time signature from kern file in DATA_DIR/krn/composer or music xml in DATA_DIR/mxml/composer in DATA_DIR/krn, and output a JSON file in DATA_DIR/event/composer as follows.
+parse_score.py
 
-{
-    'note': {
-        0: {                                    # measure index (int)
-            'event': ['o-0', 'C4', 'd-1'],      # event tokens of onset, pitch duration (list)
-            'tempo': 120,                       # tempo (int)
-            'time_signature': '4/4',            # time signature (str)
-            'key': 'C major'                    # key signature (str)
+Description:
+    Extracts notes from `.krn` or `.xml` files, grouped by measures, and outputs a structured JSON file.
+    Input files are located in:
+        - DATA_DIR/krn/<composer>       (for `.krn` files)
+        - DATA_DIR/mxml/<composer>      (for `.xml` files, converted via `hum2xml`)
+    Output is saved in:
+        - DATA_DIR/event/<composer>
+
+Usage:
+    python3 parse_score.py
+
+Output Format (JSON):
+    {
+        "note": {
+            0: {                                # measure index (int)
+                "event": ["o-0", "C4", "d-1"],  # onset, pitch, duration (list of tokens)
+                "tempo": 120,                   # tempo (int)
+                "time_signature": "4/4",        # time signature (str)
+                "key": "C major"                # key signature (str)
             },
-        ...
-    'mark': {
-        'pattern':  [A, A1, A, A2],       # pattern of sub-sections/repeating materials (list)
-        'sect': {
-            'A':                    # sub-section name
-                {'measure': 0,      # measure index of sub-section onset (int)
-                 'pos': '0'}        # metrical position (quarter note) of sub-section onset (str)
-            }, 
             ...
         },
-        'key_cpt': [                # key signature change points (list)
-            {'key': 'C major',      # key signature (str) 
-             'measure': 0,          # measure index (int)
-             'pos': '0'},           # metrical position (str)
-             ...]
-}
+        "mark": {
+            "pattern": ["A", "A1", "A", "A2"],  # repeating pattern (list)
+            "sect": {
+                "A": {
+                    "measure": 0,              # start measure (int)
+                    "pos": "0"                 # metrical onset (as quarter-note offset, str)
+                },
+                ...
+            },
+            "key_cpt": [
+                {
+                    "key": "C major",          # key signature (str)
+                    "measure": 0,              # measure index (int)
+                    "pos": "0"                 # metrical onset (str)
+                },
+                ...
+            ]
+        }
+    }
 
-Note onset position and duration are represented by proportions of quarter note.
-
-Humdrum file could be loaded
-(1) directly as .krn file
-(2) as .xml converted by `hum2xml`.
-Method (2) is recommended because music21 has various unexpected issues when parsing .krn file.
-
-NOTE: The current version has issue parsing repetition sign when the first volta is not complete. The only fix is to append rest notes to the incomplete volta. See `README.md` and Table-2 in `Appendix.mx` for more details.
-
-Usage: python3 parse_score.py
+Notes:
+    - Onset and duration values are proportional to a quarter note.
+    - Humdrum files can be processed either:
+        (1) Directly as `.krn`
+        (2) As `.xml` converted by `hum2xml` (recommended for more robust parsing)
+    - Known Issue: Repetition signs with incomplete first voltas may fail to parse correctly.
+        To resolve, append rest notes to complete the volta. See `../README.md` and `../Appendix.md`.
+    - Expressive elements such as grace notes and trills are excluded from output.
 
 """
+
 import os
 import re
 import json
@@ -52,8 +68,8 @@ from music21 import key, stream, pitch
 
 # Constants
 import sys
-sys.path.append("..")
-from utils.constants import DATA_DIR
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.constants import DATA_DIR, COMPOSERS
 
 DEFAULT_TEMPO = 120
 DEFAULT_TIME_SIGNATURE = "4/4"
@@ -725,12 +741,10 @@ def main():
     mxml_dir = os.path.join(DATA_DIR, "mxml")
     event_dir = os.path.join(DATA_DIR, "event")
 
-    composers = ['mozart', 'haydn', 'beethoven', 'scarlatti']
-
     # Get key signature from title
     pattern = r"\b([A-Ga-g][#b♭♯]?)\s(major|minor|Major|Minor)\b"
     key_dict = {}
-    for composer in composers:
+    for composer in COMPOSERS:
         df = pd.read_csv(os.path.join(DATA_DIR, "info", f"{composer}.csv"))
         for _, row in df.iterrows():
             title, filename = row['title'], row['filename']
@@ -740,7 +754,7 @@ def main():
             key_dict[f"{composer}/{filename}"] = " ".join(matches[0])
 
     sonata_pattern = r"sonata\d+-\d+"
-    for composer in composers:
+    for composer in COMPOSERS:
 
         os.makedirs(os.path.join(event_dir, composer), exist_ok=True)
         krn_files = glob(os.path.join(krn_dir, composer, "*.krn"))
