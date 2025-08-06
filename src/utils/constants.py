@@ -5,6 +5,7 @@ from music21 import pitch
 curr_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(os.path.dirname(curr_dir))
 DATA_DIR = os.path.join(root_dir, "sonata-dataset")
+MODEL_DIR = os.path.join(root_dir, "models")
 
 # Build key transpose mapping
 # C#4 to G4 -> C4; G#3 to B3 -> C4

@@ -23,6 +23,13 @@ class BaseTokenizer():
         self.token_to_id = {}
         self.id_to_token = {}
 
+    def load_base_vocab(self, base_vocab_file):
+        with open(base_vocab_file) as f:
+            tokens = f.read().splitlines()
+
+        self.train(tokens)
+        return
+
     def load_vocab(self, vocab_file):
         with open(vocab_file) as f:
             tokens = f.read().splitlines()

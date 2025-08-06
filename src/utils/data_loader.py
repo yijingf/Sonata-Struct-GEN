@@ -346,15 +346,20 @@ class MaskedDataset(Dataset):
 
 # Next Phrase Generation
 class BasePairDataset(Dataset):
-    def __init__(self, token_path=None, shuffle=True):
+    def __init__(self, token_path=None, max_len=512, shuffle=True):
 
         with open(token_path) as f:
             phrase_pairs = json.load(f)
 
+        qualified_phrase_pairs = []
+        for phrase_0, phrase_1 in phrase_pairs:
+            if len(phrase_0) <= max_len and len(phrase_1) <= max_len:
+                qualified_phrase_pairs.append((phrase_0, phrase_1))
+
         if shuffle:
-            idx = list(range(len(phrase_pairs)))
+            idx = list(range(len(qualified_phrase_pairs)))
             random.shuffle(idx)
-            self.phrase_pairs = [phrase_pairs[i] for i in idx]
+            self.phrase_pairs = [qualified_phrase_pairs[i] for i in idx]
 
     def __getitem__(self, index):
         """Return

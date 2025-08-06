@@ -271,13 +271,11 @@ def main(seq_len=512, measure_len=40, n_hop=2, pad_bar=True):
     if not os.path.exists(base_vocab_file):
         print(f"{base_vocab_file} not found. Exit.")
         return
-    with open(base_vocab_file) as f:
-        base_vocab = f.read().splitlines()
 
     # Tokenizer
     global tokenizer
     tokenizer = BertTokenizer()
-    tokenizer.train(base_vocab)
+    tokenizer.load_base_vocab(base_vocab_file)
 
     output_dir = os.path.join(DATA_DIR, "dataset", "nextGEN_finetune")
     os.makedirs(output_dir, exist_ok=True)

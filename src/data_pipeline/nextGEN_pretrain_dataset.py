@@ -156,6 +156,7 @@ def main(seq_len=512, measure_len=40, n_hop=2, n_overlap=2, bar_pad=True):
     base_vocab_file = os.path.join(DATA_DIR, "vocab", "base_vocab.txt")
     if not os.path.exists(base_vocab_file):
         # Get Cleaned Vocabulary
+        os.makedirs(os.path.join(DATA_DIR, "vocab"))
         base_vocab = build_vocab_from_event(melody_file_list + acc_file_list)
         base_vocab = ['next', 'key-mod', 'sect-end'] + base_vocab
         with open(base_vocab_file, "w") as f:
@@ -172,8 +173,8 @@ def main(seq_len=512, measure_len=40, n_hop=2, n_overlap=2, bar_pad=True):
     tokenizer.train(base_vocab)
 
     # Get overlapped segments and make datasets
-    dataset_dir = os.path.join(DATA_DIR, "dataset", "nextGEN_pretrain")
-    os.makedirs(dataset_dir, exist_ok=True)
+    output_dir = os.path.join(DATA_DIR, "dataset", "nextGEN_pretrain")
+    os.makedirs(output_dir, exist_ok=True)
 
     print("Get Overlapped Segments")
     print(f"# Measure per segments: {n_measure}")
@@ -184,14 +185,14 @@ def main(seq_len=512, measure_len=40, n_hop=2, n_overlap=2, bar_pad=True):
         file_list = [os.path.join(melody_dir, fname) for fname in df[df['split'] == split]['fname']]
         pairs = get_melody_dataset(file_list, bar_pad, measure_len, n_measure, n_hop, n_overlap)
 
-        with open(os.path.join(dataset_dir, f"{split}_{seq_len}_pad.json"), "w") as f:
+        with open(os.path.join(output_dir, f"{split}_{seq_len}_pad.json"), "w") as f:
             json.dump(pairs, f)
 
     print(f"Process {split} set")
     file_list = [os.path.join(melody_dir, fname) for fname in df[df['split'] == "test"]['fname']]
     pairs = get_melody_dataset(file_list, bar_pad, measure_len, n_measure, n_measure, n_overlap)
 
-    with open(os.path.join(dataset_dir, f"{split}_512_pad.json"), "w") as f:
+    with open(os.path.join(output_dir, f"{split}_512_pad.json"), "w") as f:
         json.dump(pairs, f)
 
     return
