@@ -46,15 +46,15 @@ python3 ./src/inference.py
 - **Objective Evaluation**
   1. **Melody Retrieval**  
     Evaluates whether the melody can be accurately retrieved from the output of the `accGEN` model, which generates full scores given a melody.  
-    → See: [`./eval/Objective Evaluation - Melody Retrieval.ipynb`](./eval/Objective Evaluation - Melody Retrieval.ipynb)
+    → See: [`./src/eval/Objective_Eval-Melody_Retrieval.ipynb`](./src/eval/Objective_Eval-Melody_Retrieval.ipynb)
   2. **Structural Annotation**  
     Assesses the quality of `AutoStruc`'s structural annotations.  
-    → See: [`./eval/Objective Evaluation - Structural Annotation.ipynb`](./eval/Objective Evaluation - Structural Annotation.ipynb)
+    → See: [`./src/eval/Objective_Eval-Structural_Annotation.ipynb`](./src/eval/Objective_Eval-Structural_Annotation.ipynb)
 
 - **Subjective Evaluation**
   1. Listener ratings on **stylistic coherence** and **musical relevance**.
   2. Evaluation of **perceived structural boundaries**.  
-    → See: [`./eval/Subjective_Evaluation_Analysis.ipynb`](./eval/Subjective_Evaluation_Analysis.ipynb)
+    → See: [`./src/eval/Subjective_Eval_Analysis.ipynb`](./src/eval/Subjective_Eval_Analysis.ipynb)
 
 ## Sample Output
 Listen to samples in https://yijingf.github.io/Sonata-Struct-GEN/
