@@ -64,13 +64,20 @@ audio {
   background-color: #f9f9f9;
 }
 /* Table Section */
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* smooth scrolling on iOS */
+  max-width: 100%;
+  border: 1px solid #ddd; /* optional, for visual boundary */
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
-  margin-top: 2rem;
-  margin-bottom: 2rem;
+  /* optional: min-width to avoid too narrow table */
+  min-width: 600px;
 }
+
 
 th, td {
   border: 1px solid #ddd;
@@ -93,3 +100,4 @@ th {
 colgroup col {
   width: 33.33%;
 }
+
