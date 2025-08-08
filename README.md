@@ -41,8 +41,12 @@ python3 ./src/inference.py
 
 ---
 
-## Sample Output
+## Evaluation
 
 ---
 
-## Evaluation
+## Sample Output
+Listen to samples in https://yijingf.github.io/Sonata-Struct-GEN/
+
+
+
