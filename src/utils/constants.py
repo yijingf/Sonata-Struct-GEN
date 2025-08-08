@@ -6,6 +6,7 @@ curr_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(os.path.dirname(curr_dir))
 DATA_DIR = os.path.join(root_dir, "sonata-dataset")
 MODEL_DIR = os.path.join(root_dir, "models")
+OUTPUT_DIR = os.path.join(root_dir, "results")
 
 # Build key transpose mapping
 # C#4 to G4 -> C4; G#3 to B3 -> C4
@@ -29,3 +30,6 @@ for key in ["C", "D", "E", "F", "G", "A", "B"]:
 old_TEMPO_BIN = np.array([24, 40, 60, 72, 96, 120, 144, 160, 192, 200])
 TEMPO_BIN = np.array([24, 40, 60, 80, 100, 120, 150, 160, 192])
 COMPOSERS = ['beethoven', 'mozart', 'scarlatti', 'haydn']
+
+DEFAULT_TEMPO = 120
+DEFAULT_TIME_SIGNATURE = "4/4"

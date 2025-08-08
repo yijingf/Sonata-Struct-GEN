@@ -4,3 +4,4 @@ data_pipeline/humextra
 *.bak
 no_submit
 reduction
+.ipynb_checkpoints/

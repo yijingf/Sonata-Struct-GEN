@@ -69,10 +69,7 @@ from music21 import key, stream, pitch
 # Constants
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.constants import DATA_DIR, COMPOSERS
-
-DEFAULT_TEMPO = 120
-DEFAULT_TIME_SIGNATURE = "4/4"
+from utils.constants import DATA_DIR, COMPOSERS, DEFAULT_TEMPO, DEFAULT_TIME_SIGNATURE
 
 KEY_SIG_MAP = {
     "C major": "A minor",
