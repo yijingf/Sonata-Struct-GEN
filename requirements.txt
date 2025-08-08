@@ -1,0 +1,8 @@
+beautifulsoup4
+huggingface-hub
+mir_eval
+music21
+pandas
+torch==2.7.1
+tqdm
+transformers==4.53.1
